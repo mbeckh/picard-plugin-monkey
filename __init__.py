@@ -18,6 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 import functools
 import sys
+import threading
 from typing import (
     TYPE_CHECKING,
     Protocol,
@@ -37,12 +38,14 @@ if TYPE_CHECKING:  # import interface for type checking only
         patch,
         patch_classmethod,
         unpatch,
+        unpatch_module,
     )
 
 __all__ = [
     'patch',
     'patch_classmethod',
     'unpatch',
+    'unpatch_module',
 ]
 
 
@@ -56,6 +59,11 @@ class _DispatcherDetails:
 class _Dispatcher(Protocol):
     _mbdd: _DispatcherDetails
 
+
+_patches: dict[
+    str, list[tuple[Callable | property | staticmethod | classmethod, PatchWrapper | ClassMethodPatchWrapper, str]]
+] = {}
+_patches_lock = threading.Lock()
 
 #
 # Apply patches
@@ -105,17 +113,20 @@ def _rebuild_chain(mbdd: _DispatcherDetails) -> None:
 
 
 def _apply_patch(
-    wrapped: Callable[P, R] | property | staticmethod, wrapper: PatchWrapper, priority: int, property_type: str
+    wrapped: Callable[P, R] | property | staticmethod | classmethod,
+    wrapper: PatchWrapper,
+    priority: int,
+    property_type: str,
 ) -> PatchWrapper[P, R]:
     """Apply the patch."""
     mod_or_cls, name = _find_mod_or_cls_and_name(wrapped)
 
-    is_property = isinstance(wrapped, property)
-
-    if is_property:
+    if isinstance(wrapped, property):
         wrapped_func: Callable = getattr(wrapped, property_type)
         if wrapped_func is None:
             raise AttributeError(f"Property '{name}' has no {property_type} defined.")
+    elif isinstance(wrapped, classmethod):
+        wrapped_func: Callable = wrapped.__func__
     else:
         # use __func__ if available
         wrapped_func: Callable = getattr(wrapped, '__func__', wrapped)
@@ -137,7 +148,7 @@ def _apply_patch(
         dispatcher = functools.update_wrapper(lambda *a, **kw: mbdd.chain(*a, **kw), wrapped_func)
         cast(_Dispatcher, dispatcher)._mbdd = mbdd
 
-        if is_property:
+        if isinstance(wrapped, property):
             prop = {
                 'fget': wrapped.fget,
                 'fset': wrapped.fset,
@@ -152,6 +163,12 @@ def _apply_patch(
             setattr(mod_or_cls, name, staticmethod(dispatcher))
         else:
             setattr(mod_or_cls, name, dispatcher)
+    with _patches_lock:
+        patches = _patches[wrapper.__module__]
+        if not patches:
+            _patches[wrapper.__module__] = patches = []
+        patches.append((wrapped, wrapper, property_type))
+
     return wrapper
 
 
@@ -162,7 +179,7 @@ def patch(
 
 
 def patch_classmethod(
-    wrapped: Callable[P, R],  # type checking does not see real class method
+    wrapped: Callable[P, R] | classmethod,  # type checking does not see real class method
     priority: int = 0,
     property_type: str = 'fget',
 ) -> Callable[[ClassMethodPatchWrapper[C, P, R]], ClassMethodPatchWrapper[C, P, R]]:
@@ -173,8 +190,8 @@ def patch_classmethod(
 
 
 def unpatch(
-    wrapped: Callable[P, R],
-    wrapper: PatchWrapper[P, R] | property | staticmethod | ClassMethodPatchWrapper[C, P, R],
+    wrapped: Callable[P, R] | property | staticmethod | classmethod,
+    wrapper: PatchWrapper[P, R] | ClassMethodPatchWrapper[C, P, R],
     property_type: str = 'fget',
 ) -> bool:
     if isinstance(wrapped, property):
@@ -195,6 +212,14 @@ def unpatch(
 
     _rebuild_chain(mbdd)
     return True
+
+
+def unpatch_module(module: str) -> None:
+    with _patches_lock:
+        patches = _patches[module]
+        if patches:
+            for patch in patches:
+                unpatch(patch[0], patch[1], patch[2])
 
 
 #

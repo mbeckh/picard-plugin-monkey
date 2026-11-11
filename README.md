@@ -49,7 +49,7 @@ Raises:
 ### @patch_classmethod
 ```python
 def patch_classmethod(
-    wrapped: Callable[P, R],
+    wrapped: Callable[P, R] | classmethod,
     priority: int = 0,
     property_type: str = 'fget',
 ) -> Callable[[ClassMethodPatchWrapper[C, P, R]], ClassMethodPatchWrapper[C, P, R]]
@@ -67,8 +67,8 @@ Raises:
 ### unpatch
 ```python
 def unpatch(
-    wrapped: Callable[P, R],
-    wrapper: PatchWrapper[P, R] | property | staticmethod | ClassMethodPatchWrapper[C, P, R],
+    wrapped: Callable[P, R] | property | staticmethod | classmethod,
+    wrapper: PatchWrapper[P, R] | ClassMethodPatchWrapper[C, P, R],
     property_type: str = 'fget',
 ) -> bool
 ```
@@ -81,6 +81,15 @@ Args:
 
 Returns:
 * True if the wrapper was found and removed.
+
+### unpatch_module
+```python
+def unpatch_module(module: str) -> None
+```
+Remove all patches for functions from a module.
+
+Args:
+    `module`: The name of the module container the wrapper functions.
 
 ## Example
 One, admittedly not very useful, example to see how it works is to add some static text to every task bar message. Put the following code into a plugin to see how it works.

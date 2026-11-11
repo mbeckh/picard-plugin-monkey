@@ -52,7 +52,7 @@ if TYPE_CHECKING:
         ...
 
     def patch_classmethod(
-        wrapped: Callable[P, R],  # type checking does not see real class method
+        wrapped: Callable[P, R] | classmethod,  # type checking does not see real class method
         priority: int = 0,
         property_type: str = 'fget',
     ) -> Callable[[ClassMethodPatchWrapper[C, P, R]], ClassMethodPatchWrapper[C, P, R]]:
@@ -70,8 +70,8 @@ if TYPE_CHECKING:
         ...
 
     def unpatch(
-        wrapped: Callable[P, R],
-        wrapper: PatchWrapper[P, R] | property | staticmethod | ClassMethodPatchWrapper[C, P, R],
+        wrapped: Callable[P, R] | property | staticmethod | classmethod,
+        wrapper: PatchWrapper[P, R] | ClassMethodPatchWrapper[C, P, R],
         property_type: str = 'fget',
     ) -> bool:
         """Remove a previously installed wrapper.
@@ -85,6 +85,13 @@ if TYPE_CHECKING:
             True if the wrapper was found and removed.
         """
         ...
+
+    def unpatch_module(module: str) -> None:
+        """Remove all patches for functions from a module.
+
+        Args:
+            module: The name of the module container the wrapper functions.
+        """
 
 
 def _import_monkey():

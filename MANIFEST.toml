@@ -1,0 +1,20 @@
+uuid = "8cf02c96-a949-4c1e-9ef4-20898c5783c7"
+name = "Monkey"
+description = "Helper for monkey patching Picard"
+api = ["3.0"]
+authors = ["Michael Beckh"]
+maintainers = ["Michael Beckh"]
+license = "Apache-2.0"
+license_url = "https://www.apache.org/licenses/LICENSE-2.0"
+long_description = """Helper for monkey patching Picard.
+
+This plugin does nothing by itself but provides decorators to help other plugins
+in monkey patching the same functions, including configuring the order of execution.
+
+Please see homepage for detailed information on installation and usage.
+"""
+categories = ["other"]
+homepage = "https://github.com/mbeckh/picard-plugin-monkey"
+report_bugs_to = "https://github.com/mbeckh/picard-plugin-monkey/issues"
+min_python_version = "3.14"
+source_locale = "en"

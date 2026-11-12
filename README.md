@@ -31,16 +31,18 @@ git subtree --prefix=monkey --gpg-sign --squash -m "Switch to experimental branc
 ### @patch
 ```python
 def patch(
-    wrapped: Callable[P, R] | property | staticmethod,
-    priority: int = 0,
-    property_type: str = 'fget'
+        target: ModuleType | type[C],
+        wrapped: Callable[P, R] | property | staticmethod[P, R],
+        priority: int = 0,
+        property_type: str = 'fget',
 ) -> Callable[[PatchWrapper[P, R]], PatchWrapper[P, R]]
 ```
 Install a wrapper around a function.
 
 Args:
+* `target`: The module or type to patch.
 * `wrapped`: The function or property to patch.
-* `priority`: Wrapper execution order. Higher values execute first (defaults to 0).
+* `priority`: Wrapper execution order from highest on the outside to lowest one the inside(defaults to 0).
 * `property_type`: Property accessor to patch (`fget`, `fset` or `fdel`, defaults to `fget`).
 
 Raises:
@@ -49,7 +51,8 @@ Raises:
 ### @patch_classmethod
 ```python
 def patch_classmethod(
-    wrapped: Callable[P, R] | classmethod,
+    target: type[C],
+    wrapped: Callable[P, R] | classmethod[C, P, R],
     priority: int = 0,
     property_type: str = 'fget',
 ) -> Callable[[ClassMethodPatchWrapper[C, P, R]], ClassMethodPatchWrapper[C, P, R]]
@@ -57,8 +60,9 @@ def patch_classmethod(
 Install a wrapper around a class method. Same as patch, but class methods require special handling to account for the class parameter.
 
 Args:
+* `target`: The module or type to patch.
 * `wrapped`: The function or property to patch.
-* `priority`: Wrapper execution order. Higher values execute first.
+* `priority`: Wrapper execution order from highest on the outside to lowest one the inside(defaults to 0).
 * `property_type`: Property accessor to patch (`fget`, `fset` or `fdel`, defaults to `fget`).
 
 Raises:
@@ -67,7 +71,8 @@ Raises:
 ### unpatch
 ```python
 def unpatch(
-    wrapped: Callable[P, R] | property | staticmethod | classmethod,
+    target: ModuleType | type[C],
+    wrapped: Callable[P, R] | property | staticmethod[P, R] | classmethod[C, P, R],
     wrapper: PatchWrapper[P, R] | ClassMethodPatchWrapper[C, P, R],
     property_type: str = 'fget',
 ) -> bool
@@ -75,6 +80,7 @@ def unpatch(
 Remove a previously installed wrapper.
 
 Args:
+* `target`: The module or type that was patched.
 * `wrapped`: The patched function, method or property.
 * `wrapper`: The wrapper function to remove.
 * `property_type`: Property accessor to remove (`fget`, `fset` or `fdel`, defaults to `fget`).
@@ -98,7 +104,7 @@ from picard.i18n import gettext
 from picard.ui.mainwindow import MainWindow
 from . import monkey
 
-@monkey.patch(MainWindow.set_statusbar_message)
+@monkey.patch(MainWindow, MainWindow.set_statusbar_message)
 def _my_wrapper(wrapped, self, message, *args, **kwargs):
     translate = kwargs.get('translate', gettext)
     kwargs['translate'] = lambda msg: (translate(msg) if translate else msg) + ' - Kilroy was here'

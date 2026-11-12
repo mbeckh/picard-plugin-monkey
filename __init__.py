@@ -17,11 +17,11 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 import functools
-import sys
+import inspect
 import threading
+from types import ModuleType
 from typing import (
     TYPE_CHECKING,
-    Protocol,
     cast,
 )
 
@@ -56,170 +56,147 @@ class _DispatcherDetails:
     wrappers: list[tuple[int, PatchWrapper]]
 
 
-class _Dispatcher(Protocol):
-    _mbdd: _DispatcherDetails
-
-
-_patches: dict[
-    str, list[tuple[Callable | property | staticmethod | classmethod, PatchWrapper | ClassMethodPatchWrapper, str]]
-] = {}
-_patches_lock = threading.Lock()
+_lock = threading.Lock()
+_registry: dict[tuple[ModuleType | type, str] | tuple[type, str, str], _DispatcherDetails] = {}
 
 #
 # Apply patches
 #
 
 
-def _find_mod_or_cls_and_name(wrapped):
-    """Find object and name for provided function."""
-    if isinstance(wrapped, property):
-        underlying_func = wrapped.fget or wrapped.fset or wrapped.fdel
-    else:
-        underlying_func = getattr(wrapped, '__func__', wrapped)
+def _find_attr_name(
+    target: ModuleType | type, wrapped: Callable[P, R] | property | staticmethod[P, R] | classmethod[C, P, R]
+) -> str:
+    """Get name of function in target object."""
+    # Unwrap bound @classmethod if applicable (bound methods have __func__ and __self__)
+    target_func = getattr(wrapped, "__func__", wrapped)
 
-    if not underlying_func:
-        raise AttributeError(f"Cannot find {wrapped}.")
+    for name in dir(target):
+        raw_attr = inspect.getattr_static(target, name, None)
+        # Unwrap raw @classmethod or @staticmethod descriptors stored on the class
+        raw_func = getattr(raw_attr, "__func__", raw_attr)
 
-    mod_name = getattr(underlying_func, '__module__', None)
-    qualname = getattr(underlying_func, '__qualname__', None)
-    if not mod_name or not qualname or mod_name not in sys.modules:
-        raise AttributeError(f"Cannot find module or qualname for {wrapped}.")
+        if raw_func is target_func:
+            return name
 
-    parts = qualname.split('.')
-    current_obj = sys.modules[mod_name]
-    for part in parts[:-1]:
-        current_obj = getattr(current_obj, part)
-
-    return current_obj, parts[-1]
+    raise AttributeError(f"Could not find {wrapped!r} on {target!r}")
 
 
-def _get_dispatcher(fn) -> _Dispatcher | None:
-    """Get our dispatcher in the call chain."""
-    if hasattr(fn, '_mbdd'):
-        return fn
-    # try wrapper from functools
-    wrapped_inner = getattr(fn, '__wrapped__', None)
-    if wrapped_inner:
-        return _get_dispatcher(wrapped_inner)
-    return None
-
-
-def _rebuild_chain(mbdd: _DispatcherDetails) -> None:
+def _rebuild_chain(details: _DispatcherDetails) -> None:
     """Rebuild wrapper chain."""
-    chain = mbdd.original
-    for _, fn in mbdd.wrappers:
-        chain = functools.update_wrapper(functools.partial(fn, chain), mbdd.original)
-    mbdd.chain = chain
+    chain = details.original
+    for _, fn in details.wrappers:
+        chain = functools.update_wrapper(functools.partial(fn, chain), details.original)
+    details.chain = chain
 
 
 def _apply_patch(
-    wrapped: Callable[P, R] | property | staticmethod | classmethod,
+    target: ModuleType | type,
+    wrapped,
     wrapper: PatchWrapper,
     priority: int,
     property_type: str,
-) -> PatchWrapper[P, R]:
+) -> Callable:
     """Apply the patch."""
-    mod_or_cls, name = _find_mod_or_cls_and_name(wrapped)
+    name = _find_attr_name(target, wrapped)
 
-    if isinstance(wrapped, property):
-        wrapped_func: Callable = getattr(wrapped, property_type)
+    is_property = isinstance(wrapped, property)
+    if is_property:
+        wrapped_func = getattr(wrapped, property_type)
         if wrapped_func is None:
             raise AttributeError(f"Property '{name}' has no {property_type} defined.")
-    elif isinstance(wrapped, classmethod):
-        wrapped_func: Callable = wrapped.__func__
     else:
         # use __func__ if available
-        wrapped_func: Callable = getattr(wrapped, '__func__', wrapped)
+        wrapped_func = getattr(wrapped, '__func__', wrapped)
 
-    dispatcher = _get_dispatcher(wrapped_func)
-    if dispatcher:
-        mbdd = cast(_Dispatcher, dispatcher)._mbdd
-        mbdd.wrappers.append((priority, wrapper))
-        mbdd.wrappers.sort(key=lambda item: item[0])
+    key = (cast(type, target), name, property_type) if is_property else (target, name)
+    with _lock:
+        details = _registry.get(key)
+        if details:
+            details.wrappers.append((priority, wrapper))
+            details.wrappers.sort(key=lambda item: item[0])
 
-        _rebuild_chain(mbdd)
-    else:
-        # create and install dispatcher
-        mbdd = _DispatcherDetails(
-            chain=functools.update_wrapper(functools.partial(wrapper, wrapped_func), wrapped_func),
-            original=wrapped_func,
-            wrappers=[(priority, wrapper)],
-        )
-        dispatcher = functools.update_wrapper(lambda *a, **kw: mbdd.chain(*a, **kw), wrapped_func)
-        cast(_Dispatcher, dispatcher)._mbdd = mbdd
-
-        if isinstance(wrapped, property):
-            prop = {
-                'fget': wrapped.fget,
-                'fset': wrapped.fset,
-                'fdel': wrapped.fdel,
-                'doc': wrapped.__doc__,
-            }
-            prop[property_type] = dispatcher
-            setattr(mod_or_cls, name, property(**prop))
-        elif isinstance(wrapped, classmethod) or isinstance(getattr(wrapped, '__self__', None), type):
-            setattr(mod_or_cls, name, classmethod(cast(ClassMethodPatchWrapper, dispatcher)))
-        elif isinstance(wrapped, staticmethod):
-            setattr(mod_or_cls, name, staticmethod(dispatcher))
+            _rebuild_chain(details)
         else:
-            setattr(mod_or_cls, name, dispatcher)
-    with _patches_lock:
-        patches = _patches[wrapper.__module__]
-        if not patches:
-            _patches[wrapper.__module__] = patches = []
-        patches.append((wrapped, wrapper, property_type))
+            # create and install dispatcher
+            details = _DispatcherDetails(
+                chain=functools.update_wrapper(functools.partial(wrapper, wrapped_func), wrapped_func),
+                original=wrapped_func,
+                wrappers=[(priority, wrapper)],
+            )
+            _registry[key] = details
+            dispatcher = cast(
+                Callable, functools.update_wrapper(lambda *a, **kw: details.chain(*a, **kw), wrapped_func)
+            )
+
+            if is_property:
+                prop = {
+                    'fget': wrapped.fget,
+                    'fset': wrapped.fset,
+                    'fdel': wrapped.fdel,
+                    'doc': wrapped.__doc__,
+                }
+                prop[property_type] = dispatcher
+                setattr(target, name, property(**prop))
+            elif isinstance(wrapped, classmethod) or isinstance(getattr(wrapped, '__self__', None), type):
+                setattr(target, name, classmethod(dispatcher))
+            elif isinstance(wrapped, staticmethod):
+                setattr(target, name, staticmethod(dispatcher))
+            else:
+                setattr(target, name, dispatcher)
 
     return wrapper
 
 
 def patch(
-    wrapped: Callable[P, R] | property | staticmethod, priority: int = 0, property_type: str = 'fget'
+    target: ModuleType | type[C],
+    wrapped: Callable[P, R] | property | staticmethod[P, R],
+    priority: int = 0,
+    property_type: str = 'fget',
 ) -> Callable[[PatchWrapper[P, R]], PatchWrapper[P, R]]:
-    return lambda wrapper: _apply_patch(wrapped, wrapper, priority, property_type)
+    return lambda wrapper: _apply_patch(target, wrapped, wrapper, priority, property_type)
 
 
 def patch_classmethod(
-    wrapped: Callable[P, R] | classmethod,  # type checking does not see real class method
-    priority: int = 0,
-    property_type: str = 'fget',
+    target: type[C], wrapped: Callable[P, R] | classmethod[C, P, R], priority: int = 0, property_type: str = 'fget'
 ) -> Callable[[ClassMethodPatchWrapper[C, P, R]], ClassMethodPatchWrapper[C, P, R]]:
-    return cast(
-        Callable[[ClassMethodPatchWrapper[C, P, R]], ClassMethodPatchWrapper[C, P, R]],
-        lambda wrapper: _apply_patch(wrapped, wrapper, priority, property_type),
-    )
+    return lambda wrapper: _apply_patch(target, wrapped, wrapper, priority, property_type)
 
 
 def unpatch(
-    wrapped: Callable[P, R] | property | staticmethod | classmethod,
+    target: ModuleType | type[C],
+    wrapped: Callable[P, R] | property | staticmethod[P, R] | classmethod[C, P, R],
     wrapper: PatchWrapper[P, R] | ClassMethodPatchWrapper[C, P, R],
     property_type: str = 'fget',
 ) -> bool:
-    if isinstance(wrapped, property):
-        wrapped_func = getattr(wrapped, property_type)
-    else:
-        wrapped_func = getattr(wrapped, '__func__', wrapped)
+    name = _find_attr_name(target, wrapped)
 
-    dispatcher = _get_dispatcher(wrapped_func)
-    if dispatcher is None:
-        return False
+    is_property = isinstance(wrapped, property)
+    key = (cast(type, target), name, property_type) if is_property else (target, name)
 
-    mbdd = cast(_Dispatcher, dispatcher)._mbdd
+    with _lock:
+        details = _registry.get(key)
+        if details is None:
+            return False
 
-    old_count = len(mbdd.wrappers)
-    mbdd.wrappers = [(priority, fn) for priority, fn in mbdd.wrappers if fn is not wrapper]
-    if len(mbdd.wrappers) == old_count:
-        return False
+        old_count = len(details.wrappers)
+        details.wrappers = [(priority, fn) for priority, fn in details.wrappers if fn is not wrapper]
+        if len(details.wrappers) == old_count:
+            return False
 
-    _rebuild_chain(mbdd)
+        _rebuild_chain(details)
     return True
 
 
 def unpatch_module(module: str) -> None:
-    with _patches_lock:
-        patches = _patches[module]
-        if patches:
-            for patch in patches:
-                unpatch(patch[0], patch[1], patch[2])
+    with _lock:
+        for details in _registry.values():
+            old_count = len(details.wrappers)
+            details.wrappers = [(priority, fn) for priority, fn in details.wrappers if fn.__module__ != module]
+            if len(details.wrappers) == old_count:
+                return
+
+            _rebuild_chain(details)
 
 
 #

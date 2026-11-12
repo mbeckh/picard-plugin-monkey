@@ -14,36 +14,41 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from types import ModuleType
+from typing import (
+    TYPE_CHECKING,
+    Concatenate,
+    ParamSpec,
+    TypeAlias,
+    TypeVar,
+)
 
 
 _NAME = 'picard-plugin-monkey'
 _UUID = '8cf02c96-a949-4c1e-9ef4-20898c5783c7'
 
+C = TypeVar('C')
+P = ParamSpec('P')
+R = TypeVar('R')
+
+PatchWrapper: TypeAlias = Callable[Concatenate[Callable[P, R], P], R]
+ClassMethodPatchWrapper: TypeAlias = Callable[Concatenate[Callable[Concatenate[type[C], P], R], type[C], P], R]
+
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from typing import (
-        Concatenate,
-        ParamSpec,
-        TypeAlias,
-        TypeVar,
-    )
-
-    C = TypeVar('C')
-    P = ParamSpec('P')
-    R = TypeVar('R')
-
-    PatchWrapper: TypeAlias = Callable[Concatenate[Callable[P, R], P], R]
-    ClassMethodPatchWrapper: TypeAlias = Callable[Concatenate[Callable[Concatenate[type[C], P], R], type[C], P], R]
 
     def patch(
-        wrapped: Callable[P, R] | property | staticmethod, priority: int = 0, property_type: str = 'fget'
+        target: ModuleType | type[C],
+        wrapped: Callable[P, R] | property | staticmethod[P, R],
+        priority: int = 0,
+        property_type: str = 'fget',
     ) -> Callable[[PatchWrapper[P, R]], PatchWrapper[P, R]]:
         """Install a wrapper around a function.
 
         Args:
+            target: The module or type to patch.
             wrapped: The function or property to patch.
-            priority: Wrapper execution order. Higher values execute first.
+            priority: Wrapper execution order from highest on the outside to lowest one the inside.
             property_type: Property accessor to patch (fget, fset or fdel).
 
         Raises:
@@ -52,7 +57,8 @@ if TYPE_CHECKING:
         ...
 
     def patch_classmethod(
-        wrapped: Callable[P, R] | classmethod,  # type checking does not see real class method
+        target: type[C],
+        wrapped: Callable[P, R] | classmethod[C, P, R],
         priority: int = 0,
         property_type: str = 'fget',
     ) -> Callable[[ClassMethodPatchWrapper[C, P, R]], ClassMethodPatchWrapper[C, P, R]]:
@@ -60,8 +66,9 @@ if TYPE_CHECKING:
         Same as patch, but class methods require special handling to account for the class parameter.
 
         Args:
+            target: The module or type to patch.
             wrapped: The function or property to patch.
-            priority: Wrapper execution order. Higher values execute first.
+            priority: Wrapper execution order from highest on the outside to lowest one the inside.
             property_type: Property accessor to patch (fget, fset or fdel).
 
         Raises:
@@ -70,13 +77,15 @@ if TYPE_CHECKING:
         ...
 
     def unpatch(
-        wrapped: Callable[P, R] | property | staticmethod | classmethod,
+        target: ModuleType | type[C],
+        wrapped: Callable[P, R] | property | staticmethod[P, R] | classmethod[C, P, R],
         wrapper: PatchWrapper[P, R] | ClassMethodPatchWrapper[C, P, R],
         property_type: str = 'fget',
     ) -> bool:
         """Remove a previously installed wrapper.
 
         Args:
+            target: The module or type to unpatch.
             wrapped: The patched function, method or property.
             wrapper: The wrapper function to remove.
             property_type: Property accessor (fget, fset or fdel).
@@ -92,6 +101,7 @@ if TYPE_CHECKING:
         Args:
             module: The name of the module container the wrapper functions.
         """
+        ...
 
 
 def _import_monkey():
@@ -110,6 +120,7 @@ def _import_monkey():
             if monkey:
                 for name in monkey.__all__:
                     globals()[name] = getattr(monkey, name)
+                return
 
     raise ModuleNotFoundError(name=_NAME)
 

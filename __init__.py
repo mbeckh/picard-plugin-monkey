@@ -199,12 +199,11 @@ def unpatch_module(module: str) -> None:
             _rebuild_chain(details)
 
 
-#
-# Register plugin
-#
 def enable(api: PluginApi):
+    """Enable plugin."""
     pass
 
 
 def disable():
+    """Disable plugin."""
     pass

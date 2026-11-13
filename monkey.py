@@ -15,6 +15,9 @@
 # limitations under the License.
 
 from collections.abc import Callable
+from packaging.version import Version
+from picard import tagger_instance
+from picard.plugin3.manager import PluginManager
 from types import ModuleType
 from typing import (
     TYPE_CHECKING,
@@ -24,7 +27,7 @@ from typing import (
     TypeVar,
 )
 
-
+_API_VERSION = Version('1.0.0')
 _NAME = 'picard-plugin-monkey'
 _UUID = '8cf02c96-a949-4c1e-9ef4-20898c5783c7'
 
@@ -105,24 +108,28 @@ if TYPE_CHECKING:
 
 
 def _import_monkey():
-    from picard import tagger_instance
-    from picard.plugin3.manager import PluginManager
+    """Load Monkey plugin and import decorators and functions."""
 
     # PluginApi might not yet be available, so tagger_instance() is our only choice
     manager: PluginManager | None = tagger_instance().get_plugin_manager()
     if manager:
         plugin = manager.plugin_id_to_plugin(_NAME)
-        if plugin and plugin.uuid == _UUID:
-            if plugin._module:
-                monkey = plugin._module
-            else:
-                monkey = plugin.load_module()
-            if monkey:
-                for name in monkey.__all__:
-                    globals()[name] = getattr(monkey, name)
-                return
+        if plugin and plugin.uuid == _UUID and plugin.manifest:
+            plugin_version = plugin.manifest.version
+            if plugin_version:
+                if plugin_version.major != _API_VERSION.major or plugin_version.minor < _API_VERSION.minor:
+                    # Update either installed Monkey plugin or client plugin.
+                    raise ModuleNotFoundError(f"Monkey plugin has version {plugin_version} but API is {_API_VERSION}.", name=_NAME)
+                if plugin._module:
+                    monkey = plugin._module
+                else:
+                    monkey = plugin.load_module()
+                if monkey:
+                    for name in monkey.__all__:
+                        globals()[name] = getattr(monkey, name)
+                    return
 
-    raise ModuleNotFoundError(name=_NAME)
+    raise ModuleNotFoundError(f"Could not locate or load Monkey plugin.", name=_NAME)
 
 
 _import_monkey()

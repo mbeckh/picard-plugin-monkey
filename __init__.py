@@ -141,7 +141,7 @@ def _apply_patch(
         target: The module or class to patch.
         wrapped: The function or property to patch.
         wrapper: The function called instead of wrapped.
-        priority: Wrapper execution order from highest on the outside to lowest one the inside.
+        priority: Wrapper execution order from highest on the outside to lowest on the inside.
         property_type: Property accessor (fget, fset or fdel).
 
     Returns:
@@ -217,7 +217,7 @@ def patch(
     Args:
         target: The module or type to patch.
         wrapped: The function or property to patch.
-        priority: Wrapper execution order from highest on the outside to lowest one the inside.
+        priority: Wrapper execution order from highest on the outside to lowest on the inside.
         property_type: Property accessor to patch (fget, fset or fdel).
 
     Returns:
@@ -239,7 +239,7 @@ def patch_classmethod(
     Args:
         target: The module or type to patch.
         wrapped: The function or property to patch.
-        priority: Wrapper execution order from highest on the outside to lowest one the inside.
+        priority: Wrapper execution order from highest on the outside to lowest on the inside.
         property_type: Property accessor to patch (fget, fset or fdel).
 
     Returns:

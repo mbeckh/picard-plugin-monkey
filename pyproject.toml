@@ -4,7 +4,7 @@ authors = [{name = "Michael Beckh (mbeckh)"}]
 license = "Apache-2.0"
 requires-python=">=3.12"
 dependencies = [
-    "picard>=3.0.3",
+    "picard>=3.0.3,<=3.0.5",
 ]
 
 [dependency-groups]

@@ -166,7 +166,8 @@ def _apply_patch(
     with _lock:
         details = registry.get(key)
         if details:
-            details.wrappers.append((priority, wrapper))
+            # remove wrapper if it already exists (might happen on reloads)
+            details.wrappers = [*(pw for pw in details.wrappers if pw[1] is not wrapper), (priority, wrapper)]
             details.wrappers.sort(key=operator.itemgetter(0))
 
             _rebuild_chain(details)

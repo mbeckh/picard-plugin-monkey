@@ -53,6 +53,7 @@ def patch[C, **P, R](
 Install a wrapper around a function.
 
 Args:
+
 * `target`: The module or type to patch.
 * `wrapped`: The function or property to patch.
 * `priority`: Wrapper execution order from highest on the outside to lowest on
@@ -61,6 +62,7 @@ Args:
   defaults to `fget`).
 
 Raises:
+
 * `AttributeError`: If the target function cannot be found.
 
 ### @patch_classmethod
@@ -78,6 +80,7 @@ Install a wrapper around a class method. Same as patch, but class methods
 require special handling to account for the class parameter.
 
 Args:
+
 * `target`: The module or type to patch.
 * `wrapped`: The function or property to patch.
 * `priority`: Wrapper execution order from highest on the outside to lowest on
@@ -86,6 +89,7 @@ Args:
   defaults to `fget`).
 
 Raises:
+
 * `AttributeError`: If the target function cannot be found.
 
 ### unpatch
@@ -102,6 +106,7 @@ def unpatch[C, **P, R](
 Remove a previously installed wrapper.
 
 Args:
+
 * `target`: The module or type that was patched.
 * `wrapped`: The patched function, method or property.
 * `wrapper`: The wrapper function to remove.
@@ -109,6 +114,7 @@ Args:
   defaults to `fget`).
 
 Returns:
+
 * True if the wrapper was found and removed.
 
 ### unpatch_module
@@ -120,6 +126,7 @@ def unpatch_module(module: str) -> None
 Remove all patches for functions from a module.
 
 Args:
+
 * `module`: The name of the module container the wrapper functions.
 
 ## Example
@@ -145,4 +152,4 @@ def _my_wrapper(wrapped, self, message, *args, **kwargs):
 
 The code is released under the Apache License Version 2.0. Please see
 [LICENSE](LICENSE) for details and [NOTICE](NOTICE) for the required information
-when using picard-plugin-cover-unprocessed in your own work.
+when using picard-plugin-monkey in your own work.

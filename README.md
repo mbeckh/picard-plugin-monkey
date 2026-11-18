@@ -34,8 +34,8 @@ def my_wrapper(wrapped, self): ...
 **The wrappers themselves should be regular functions in module scope.** To be
 frank, I have not yet tested what happens if you supply a class method.
 
-> [!WARNING] If you are monkey patching Picard, even a minor update can break
-> your plugin.
+> [!WARNING]
+> If you are monkey patching Picard, even a minor update can break your plugin.
 
 ## Documentation
 

@@ -60,10 +60,10 @@ API_VERSION = Version('1.0.0')
 
 
 @dataclass
-class _DispatcherDetails:
-    chain: Callable
-    original: Callable
-    wrappers: list[tuple[int, PatchWrapper]]
+class _DispatcherDetails[**P, R]:
+    chain: Callable[P, R]
+    original: Callable[P, R]
+    wrappers: list[tuple[int, PatchWrapper[P, R]]]
 
 
 _lock = threading.Lock()
@@ -118,7 +118,7 @@ def _find_attr_name(
     raise AttributeError(f"Could not find {wrapped!r} on {target!r}")
 
 
-def _rebuild_chain(details: _DispatcherDetails) -> None:
+def _rebuild_chain(details: _DispatcherDetails[P, R]) -> None:
     """Rebuild wrapper chain."""
     chain = details.original
     for _, fn in details.wrappers:
@@ -126,10 +126,26 @@ def _rebuild_chain(details: _DispatcherDetails) -> None:
     details.chain = chain
 
 
+def _monkey_dispatcher[**P, R](details: _DispatcherDetails[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
+    """Dispatcher function which calls all registered hooks.
+
+    Implemented as a function instead of an inline lambda to make call stacks easier to read.
+
+    Args:
+        details: The dispatcher details object.
+        args: The forwarded args of the call.
+        kwargs: The forwarded kwargs of the call.
+
+    Returns:
+        Whatever the wrapped function returns.
+    """
+    return details.chain(*args, **kwargs)
+
+
 def _apply_patch(
-    target: ModuleType | type,
+    target: ModuleType | type[C],
     wrapped: Callable[P, R] | property | staticmethod[P, R],
-    wrapper: PatchWrapper,
+    wrapper: PatchWrapper[P, R],
     priority: int,
     property_type: str,
 ) -> PatchWrapper:
@@ -180,13 +196,7 @@ def _apply_patch(
             )
             registry[key] = details
 
-            dispatcher = cast(
-                'Callable',
-                # it is NOT possible to inline the following lambda because
-                # details.chain can change at runtime and MUST NOT be bound
-                # before the actual call
-                functools.update_wrapper(lambda *args, **kwargs: details.chain(*args, **kwargs), wrapped_func),  # ruff: ignore[unnecessary-lambda]
-            )
+            dispatcher = functools.update_wrapper(functools.partial(_monkey_dispatcher, details), wrapped_func)
 
             if is_property:
                 prop = {
@@ -198,7 +208,7 @@ def _apply_patch(
                 prop[property_type] = dispatcher
                 setattr(target, name, property(**prop))
             elif isinstance(wrapped, classmethod) or isinstance(getattr(wrapped, '__self__', None), type):
-                setattr(target, name, classmethod(dispatcher))
+                setattr(target, name, classmethod(cast('Callable', dispatcher)))
             elif isinstance(inspect.getattr_static(target, name), staticmethod):
                 setattr(target, name, staticmethod(dispatcher))
             else:

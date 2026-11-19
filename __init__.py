@@ -199,7 +199,7 @@ def _apply_patch(
                 setattr(target, name, property(**prop))
             elif isinstance(wrapped, classmethod) or isinstance(getattr(wrapped, '__self__', None), type):
                 setattr(target, name, classmethod(dispatcher))
-            elif isinstance(wrapped, staticmethod):
+            elif isinstance(inspect.getattr_static(target, name), staticmethod):
                 setattr(target, name, staticmethod(dispatcher))
             else:
                 setattr(target, name, dispatcher)

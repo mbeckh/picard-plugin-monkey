@@ -259,7 +259,10 @@ def patch_classmethod(
     Raises:
         AttributeError: If the target function cannot be found.
     """
-    return lambda wrapper: _apply_patch(target, wrapped, wrapper, priority, property_type)
+    return lambda wrapper: cast(
+        'ClassMethodPatchWrapper[C, P, R]',
+        _apply_patch(target, wrapped, cast('PatchWrapper[P, R]', wrapper), priority, property_type),
+    )
 
 
 def unpatch(
